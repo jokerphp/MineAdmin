@@ -9,6 +9,8 @@ declare(strict_types=1);
  * @contact  root@imoi.cn
  * @license  https://github.com/mineadmin/MineAdmin/blob/master/LICENSE
  */
+use function Hyperf\Support\env;
+
 return [
     /*
      * Whether to enable the Extended Store feature,
@@ -24,17 +26,11 @@ return [
     'access_token' => env('MINE_ACCESS_TOKEN'),
 
     /*
-     * The list of extensions to be automatically installed when the system is initialized.
-     * 设置执行 mine:install 命令时，自动安装插件列表
-     */
-    'auto_install_list' => [],
-
-    /*
      * The root directory where the front-end code resides.
      *
      * 前端代码所在根目录.
      */
-    'front_directory' => './web/',
+    'front_directory' => BASE_PATH . '/web',
     'composer' => [
         /*
          * composer executes the program directly from composer by default,
@@ -53,7 +49,7 @@ return [
          *
          * 前端包管理执行工具 可选 npm yarn pnpm，默认使用 npm
          */
-        'type' => 'pnpm',
+        'type' => 'npm',
         /*
          * The default directory for executing programs is npm,
          * but if you don't have the npm environment variable configured,

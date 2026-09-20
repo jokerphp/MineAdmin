@@ -1,0 +1,24 @@
+{
+    "name": "zhh/user-center",
+    "version": "1.0.0",
+    "type": "mixed",
+    "description": "用戶中心（獨立應用）：微信登錄、個人資料、文件上傳",
+    "author": [
+        {
+            "name": "zhh",
+            "role": "developer"
+        }
+    ],
+    "composer": {
+        "require": {},
+        "psr-4": {
+            "Plugin\\Zhh\\UserCenter\\": "src"
+        },
+        "installScript": "Plugin\\Zhh\\UserCenter\\InstallScript",
+        "uninstallScript": "Plugin\\Zhh\\UserCenter\\UninstallScript",
+        "config": "Plugin\\Zhh\\UserCenter\\ConfigProvider"
+    },
+    "package": {
+        "dependencies": {}
+    }
+}

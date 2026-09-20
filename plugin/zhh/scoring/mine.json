@@ -1,0 +1,27 @@
+{
+    "name": "zhh/scoring",
+    "version": "1.0.0",
+    "type": "mixed",
+    "description": "打牌記賬計分業務插件：房間、計分、結算、戰績與即時推送",
+    "author": [
+        {
+            "name": "zhh",
+            "role": "developer"
+        }
+    ],
+    "require": [
+        "zhh/user-center"
+    ],
+    "composer": {
+        "require": {},
+        "psr-4": {
+            "Plugin\\Zhh\\Scoring\\": "src"
+        },
+        "installScript": "Plugin\\Zhh\\Scoring\\InstallScript",
+        "uninstallScript": "Plugin\\Zhh\\Scoring\\UninstallScript",
+        "config": "Plugin\\Zhh\\Scoring\\ConfigProvider"
+    },
+    "package": {
+        "dependencies": {}
+    }
+}

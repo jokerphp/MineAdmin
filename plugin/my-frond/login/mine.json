@@ -1,0 +1,14 @@
+{
+    "name": "my-frond/login",
+    "version": "1.0.0",
+    "type": "frond",
+    "description": "登录頁面",
+    "author": [
+        {
+            "name": "zhh"
+        }
+    ],
+    "package": {
+        "dependencies": {}
+    }
+}
