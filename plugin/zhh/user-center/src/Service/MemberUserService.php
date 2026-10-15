@@ -17,6 +17,7 @@ use Lcobucci\JWT\Token\RegisteredClaims;
 use Lcobucci\JWT\UnencryptedToken;
 use Mine\Jwt\Factory;
 use Mine\Jwt\JwtInterface;
+use Plugin\Zhh\UserCenter\Model\MemberApp;
 use Plugin\Zhh\UserCenter\Model\MemberUser;
 use Plugin\Zhh\UserCenter\Repository\MemberAppRepository;
 use Plugin\Zhh\UserCenter\Repository\MemberUserRepository;
@@ -54,13 +55,7 @@ final class MemberUserService extends IService
      */
     public function loginWithWechat(array $params, string $ip = ''): array
     {
-        $app = $this->memberAppRepository->findEnabledByAppId((string) $params['app_id']);
-        if ($app === null) {
-            throw new BusinessException(ResultCode::UNPROCESSABLE_ENTITY, '應用不存在或已停用');
-        }
-
-        $session = $this->wechatClient->code2session($app, (string) $params['code']);
-        $this->wechatClient->cacheSessionKey($app->app_id, $session['openid'], $session['session_key']);
+        [$app, $session] = $this->exchangeSession($params);
 
         $user = $this->repository->findByOpenid($app->app_id, $session['openid']);
 
@@ -77,21 +72,28 @@ final class MemberUserService extends IService
             $this->clearUserCountCache($app->app_id);
         }
 
-        // @phpstan-ignore-next-line
-        $user = $this->repository->saveById($user->id, [
-            'login_count' => (int) $user->login_count + 1,
-            'last_login_at' => date('Y-m-d H:i:s'),
-            'last_login_ip' => $ip,
-        ]);
+        return $this->issueTokens($this->touchLogin($user, $ip));
+    }
 
-        $jwt = $this->getJwt();
+    /**
+     * 微信靜默登錄（冷啟動自動登錄）：本地登錄態丟失（用戶刪除小程序 / 長期未進入致 token 失效）時，
+     * 用 code 換 openid 判斷該會員是否已使用過本小程序。
+     *
+     * 已註冊：直接復用原帳號簽發令牌，前端無需再填資料；未註冊：**不建號**，返回 registered=false 交回前端走原有登錄流程。
+     *
+     * @param array<string, mixed> $params
+     * @return array{registered: bool, token?: string, refresh_token?: string, expire_at?: int, user?: array<string, mixed>}
+     */
+    public function silentLogin(array $params, string $ip = ''): array
+    {
+        [$app, $session] = $this->exchangeSession($params);
 
-        return [
-            'token' => $jwt->builderAccessToken((string) $user->id)->toString(),
-            'refresh_token' => $jwt->builderRefreshToken((string) $user->id)->toString(),
-            'expire_at' => (int) $jwt->getConfig('ttl', 0),
-            'user' => $this->formatUser($user),
-        ];
+        $user = $this->repository->findByOpenid($app->app_id, $session['openid']);
+        if ($user === null) {
+            return ['registered' => false];
+        }
+
+        return ['registered' => true] + $this->issueTokens($this->touchLogin($user, $ip));
     }
 
     /**
@@ -249,6 +251,55 @@ final class MemberUserService extends IService
         }
 
         return $count;
+    }
+
+    /**
+     * 校驗應用合法性 + 用微信 code 換取會話，並緩存 session_key（不入庫，方案 §6.2）。
+     *
+     * @param array<string, mixed> $params
+     * @return array{0: MemberApp, 1: array{openid: string, session_key: string, unionid: string}}
+     */
+    private function exchangeSession(array $params): array
+    {
+        $app = $this->memberAppRepository->findEnabledByAppId((string) $params['app_id']);
+        if ($app === null) {
+            throw new BusinessException(ResultCode::UNPROCESSABLE_ENTITY, '應用不存在或已停用');
+        }
+
+        $session = $this->wechatClient->code2session($app, (string) $params['code']);
+        $this->wechatClient->cacheSessionKey($app->app_id, $session['openid'], $session['session_key']);
+
+        return [$app, $session];
+    }
+
+    /**
+     * 記錄本次登錄（次數 / 時間 / IP）。
+     */
+    private function touchLogin(MemberUser $user, string $ip): MemberUser
+    {
+        // @phpstan-ignore-next-line
+        return $this->repository->saveById($user->id, [
+            'login_count' => (int) $user->login_count + 1,
+            'last_login_at' => date('Y-m-d H:i:s'),
+            'last_login_ip' => $ip,
+        ]) ?? $user;
+    }
+
+    /**
+     * 簽發令牌（access + refresh）並附帶會員資料。
+     *
+     * @return array{token: string, refresh_token: string, expire_at: int, user: array<string, mixed>}
+     */
+    private function issueTokens(MemberUser $user): array
+    {
+        $jwt = $this->getJwt();
+
+        return [
+            'token' => $jwt->builderAccessToken((string) $user->id)->toString(),
+            'refresh_token' => $jwt->builderRefreshToken((string) $user->id)->toString(),
+            'expire_at' => (int) $jwt->getConfig('ttl', 0),
+            'user' => $this->formatUser($user),
+        ];
     }
 
     private function getJwt(): JwtInterface

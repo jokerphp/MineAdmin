@@ -46,6 +46,20 @@ final class LoginController extends AbstractController
     }
 
     #[Post(
+        path: '/api/v1/user/silent-login',
+        operationId: 'UserCenterSilentLogin',
+        summary: '微信靜默自動登錄（已註冊會員免填資料，未註冊返回 registered=false）',
+        tags: ['用戶中心']
+    )]
+    #[ResultResponse(instance: new Result(data: ['registered' => true, 'token' => 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.xxx', 'refresh_token' => 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.yyy', 'expire_at' => 3600, 'user' => ['id' => 1, 'nickname' => '張三']]))]
+    public function silentLogin(LoginRequest $request): Result
+    {
+        return $this->success(
+            $this->memberUserService->silentLogin($request->validated(), $request->ip())
+        );
+    }
+
+    #[Post(
         path: '/api/v1/user/logout',
         operationId: 'UserCenterLogout',
         summary: '登出',
