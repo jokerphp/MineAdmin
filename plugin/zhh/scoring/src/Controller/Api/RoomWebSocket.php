@@ -5,12 +5,12 @@ declare(strict_types=1);
  * This file is part of the zhh/scoring plugin.
  *
  * WebSocket 控制器（方案 §10.3）：連接鑒權、房間訂閱、心跳與取消訂閱。
- * 連接地址：`ws://{host}:9502/room/ws?token=xxx&room_id=123`（方案 §10.5）。
+ * 連接地址：`ws://{host}:9502/ws/room?token=xxx&room_id=123`（方案 §10.5，統一 /ws/ 前綴）。
  *
  * 分發機制（已核對 hyperf/websocket-server 源碼）：握手時 `Hyperf\WebSocketServer\Server::onHandShake()`
  * 先跑路由分派，再從 `CoreMiddleware::HANDLER_NAME` 取本類類名存入 FdCollector；
  * 之後 `onMessage` / `onClose` / `deferOnOpen` 才用容器取實例並呼叫對應介面方法。
- * 因此**必須在路由中把 `/room/ws` 指向本類**（見 `config/routes.php` 的 `Router::addServer('ws', ...)`），
+ * 因此**必須在路由中把 `/ws/room` 指向本類**（見 `config/routes.php` 的 `Router::addServer('ws', ...)`），
  * 否則握手只會印 "WebSocket handshake failed, because the class does not exists."，三個回調都不會被呼叫。
  *
  * 接口注意：`OnOpenInterface` / `OnMessageInterface` / `OnCloseInterface` 位於 `Hyperf\Contract\`

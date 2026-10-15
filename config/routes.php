@@ -13,7 +13,7 @@ use Hyperf\HttpServer\Router\Router;
 use Plugin\Zhh\Scoring\Controller\Api\RoomWebSocket;
 
 Router::get('/', static function () {
-    return 'welcome use mineAdmin';
+    return '';
 });
 
 Router::get('/favicon.ico', static function () {
@@ -21,7 +21,9 @@ Router::get('/favicon.ico', static function () {
 });
 
 /*
- * WebSocket 路由（方案 §10.2 / §10.5）：ws://{host}:9502/room/ws?token=xxx&room_id=123
+ * WebSocket 路由（方案 §10.2 / §10.5）：統一 /ws/ 前綴。
+ * Nginx 只需一條 `location ^~ /ws/` 指向 9502；之後新增 WS 端點時只在此註冊 /ws/xxx 即可。
+ * 例：wss://myzhh.cn/ws/room?token=xxx&room_id=123
  *
  * handler 必須傳「類名字串」：hyperf/websocket-server 的 CoreMiddleware 握手時會先
  * container->has($controller) 校驗（否則拋 Router not exist.），再把類名寫入 HANDLER_NAME，
@@ -31,5 +33,6 @@ Router::get('/favicon.ico', static function () {
  *      而 zhh/scoring 已被卸載時才會報錯。
  */
 Router::addServer('ws', static function () {
-    Router::get('/room/ws', RoomWebSocket::class);
+    // 統一前綴：新增 WS 端點在此追加 /ws/xxx 即可，Nginx 無需再改
+    Router::get('/ws/room', RoomWebSocket::class);
 });
