@@ -23,4 +23,5 @@ public
 !composer.lock
 storage/swagger/http.json
 storage/uploads
+storage/resources
 .svn

@@ -25,6 +25,12 @@ return [
             'root' => BASE_PATH . '/storage/uploads',
             'public_url' => env('APP_URL') . '/uploads',
         ],
+        // 程序自產資源（如房間邀請小程序碼 storage/resources/qrcode/{日期}）
+        'resources' => [
+            'driver' => LocalAdapterFactory::class,
+            'root' => BASE_PATH . '/storage/resources',
+            'public_url' => env('APP_URL') . '/resources',
+        ],
         'oss' => [
             'driver' => AliyunOssAdapterFactory::class,
             'accessId' => '',

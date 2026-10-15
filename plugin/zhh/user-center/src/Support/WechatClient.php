@@ -12,11 +12,11 @@ namespace Plugin\Zhh\UserCenter\Support;
 
 use App\Exception\BusinessException;
 use App\Http\Common\ResultCode;
+use Hyperf\Filesystem\FilesystemFactory;
 use Hyperf\Guzzle\ClientFactory;
 use Hyperf\Redis\Redis;
-use Mine\Upload\UploadInterface;
 use Plugin\Zhh\UserCenter\Model\MemberApp;
-use Symfony\Component\Finder\SplFileInfo;
+use Ramsey\Uuid\Uuid;
 
 class WechatClient
 {
@@ -49,10 +49,20 @@ class WechatClient
 
     private const ACCESS_TOKEN_PREFIX = 'uc:wx_access_token:';
 
+    /**
+     * 程序自產資源磁盤（config/autoload/file.php）：root = storage/resources，公開前綴 = {APP_URL}/resources
+     */
+    private const RESOURCE_DISK = 'resources';
+
+    /**
+     * 小程序碼存放子目錄：resources/qrcode/{日期}/{uuid}.png
+     */
+    private const QRCODE_DIR = 'qrcode';
+
     public function __construct(
         private readonly ClientFactory $clientFactory,
         private readonly Redis $redis,
-        private readonly UploadInterface $upload
+        private readonly FilesystemFactory $filesystemFactory
     ) {}
 
     /**
@@ -137,8 +147,9 @@ class WechatClient
     /**
      * 生成不限量小程序碼（方案 §7.3 房間邀請），返回可直接訪問的圖片 URL。
      *
-     * 說明（假設）：微信 `wxa/getwxacodeunlimit` 返回的是**圖片二進制流**而非 CDN URL，
-     * 因此這裡把二進制落地到 Mine\Upload，再返回其訪問地址，以符合方案「返回 qr_url」的契約。
+     * 說明：微信 `wxa/getwxacodeunlimit` 返回的是**圖片二進制流**而非 CDN URL，
+     * 因此把二進制落地到 resources 磁盤的 `qrcode/{日期}/{uuid}.png`，再返回 `{APP_URL}/resources/...` 訪問地址，
+     * 以符合方案「返回 qr_url」的契約（目錄結構見 config/autoload/file.php 與倉庫根目錄 nginx.config）。
      */
     public function getUnlimitedQRCode(MemberApp $app, string $scene, string $page): string
     {
@@ -168,14 +179,12 @@ class WechatClient
             throw new BusinessException(ResultCode::UNPROCESSABLE_ENTITY, '生成小程序碼失敗：微信未返回圖片數據');
         }
 
-        $tmpPath = sys_get_temp_dir() . '/' . uniqid('wxacode_', true) . '.png';
-        file_put_contents($tmpPath, $body);
+        $path = self::QRCODE_DIR . '/' . date('Y-m-d') . '/' . Uuid::uuid4()->toString() . '.png';
 
-        try {
-            return $this->upload->upload(new SplFileInfo($tmpPath, '', ''))->getUrl();
-        } finally {
-            @unlink($tmpPath);
-        }
+        $filesystem = $this->filesystemFactory->get(self::RESOURCE_DISK);
+        $filesystem->write($path, $body);
+
+        return $filesystem->publicUrl($path);
     }
 
     private function sessionKey(string $appId, string $openid): string

@@ -66,7 +66,7 @@ final class MemberUserService extends IService
                 'openid' => $session['openid'],
                 'unionid' => $session['unionid'],
                 'nickname' => (string) ($params['nickname'] ?? ''),
-                'avatar' => (string) ($params['avatar'] ?? ''),
+                'avatar' => $this->normalizeAvatar((string) ($params['avatar'] ?? '')),
             ]);
             // 新增會員：首頁用戶數緩存即時失效（方案 §6.5.2）
             $this->clearUserCountCache($app->app_id);
@@ -300,6 +300,24 @@ final class MemberUserService extends IService
             'expire_at' => (int) $jwt->getConfig('ttl', 0),
             'user' => $this->formatUser($user),
         ];
+    }
+
+    /**
+     * 首次登錄時上報的頭像落地規則（方案 §6.2 / §9.3）：
+     *
+     * 1. **微信頭像鏈接**（如 `https://thirdwx.qlogo.cn/...`）與本站已上傳地址（`{APP_URL}/uploads/...`）
+     *    本身就是可長期訪問的 URL，直接存鏈接，**不轉存為本地文件**；
+     * 2. **微信本地臨時路徑**（`open-type="chooseAvatar"` / `chooseImage` 返回的 `wxfile://…`、`http://tmp/…`）
+     *    僅在用戶端有效，服務端無法訪問，一律不入庫（存空串）；
+     *    用戶端應在登錄成功後（拿到 token）再調 `POST /api/v1/user/upload` 上傳並用 `PUT /api/v1/user/profile` 回寫。
+     */
+    private function normalizeAvatar(string $avatar): string
+    {
+        if (str_starts_with($avatar, 'wxfile://') || str_starts_with($avatar, 'http://tmp/')) {
+            return '';
+        }
+
+        return preg_match('#^https?://#i', $avatar) === 1 ? $avatar : '';
     }
 
     private function getJwt(): JwtInterface
