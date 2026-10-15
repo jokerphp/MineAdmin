@@ -10,10 +10,13 @@ declare(strict_types=1);
 namespace Plugin\Zhh\UserCenter\Request\Api;
 
 use App\Http\Common\Request\Traits\NoAuthorizeTrait;
+use Hyperf\Collection\Arr;
 use Hyperf\Validation\Request\FormRequest;
+use Mine\Support\Request\ClientIpRequestTrait;
 
 class LoginRequest extends FormRequest
 {
+    use ClientIpRequestTrait;
     use NoAuthorizeTrait;
 
     public function rules(): array
@@ -34,5 +37,10 @@ class LoginRequest extends FormRequest
             'nickname' => '昵稱',
             'avatar' => '頭像',
         ];
+    }
+
+    public function ip(): string
+    {
+        return Arr::first($this->getClientIps(), static fn ($ip) => $ip, '0.0.0.0');
     }
 }
