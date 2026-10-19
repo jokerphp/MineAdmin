@@ -39,12 +39,20 @@ zh_CN:
   inRoom: 在房
   left: 已退出
   memberSettled: 已单独结算
+  result: 胜负
+  win: 胜
+  lose: 负
+  draw: 平
+  settleType: 结算类型
+  settleBattle: 整局结算
+  settleMember: 单独结算
   roundNo: 轮次
   recordType: 类型
   typeScore: 计分
   typeExpense: 支出
   typeSettle: 清算
   amount: 金额
+  teaFee: 茶水费
   targetUser: 收款方
   remark: 备注
   noData: 暂无数据
@@ -89,12 +97,20 @@ zh_TW:
   inRoom: 在房
   left: 已退出
   memberSettled: 已單獨結算
+  result: 勝負
+  win: 勝
+  lose: 負
+  draw: 平
+  settleType: 結算類型
+  settleBattle: 整局結算
+  settleMember: 單獨結算
   roundNo: 輪次
   recordType: 類型
   typeScore: 計分
   typeExpense: 支出
   typeSettle: 清算
   amount: 金額
+  teaFee: 茶水費
   targetUser: 收款方
   remark: 備註
   noData: 暫無數據
@@ -139,12 +155,20 @@ en:
   inRoom: In Room
   left: Left
   memberSettled: Settled
+  result: Result
+  win: Win
+  lose: Lose
+  draw: Draw
+  settleType: Settle Type
+  settleBattle: Whole Battle
+  settleMember: Member Only
   roundNo: Round
   recordType: Type
   typeScore: Score
   typeExpense: Expense
   typeSettle: Settle
   amount: Amount
+  teaFee: Tea Fee
   targetUser: Target
   remark: Remark
   noData: No data
@@ -220,6 +244,25 @@ function recordTypeText(type: number): string {
     default:
       return t('typeSettle')
   }
+}
+
+// 勝負：與結算服務 computeResult 一致（1=勝,2=負,3=平；負分一律判負）
+function resultText(result: number): string {
+  switch (result) {
+    case 1:
+      return t('win')
+    case 2:
+      return t('lose')
+    case 3:
+      return t('draw')
+    default:
+      return '-'
+  }
+}
+
+// 結算類型：1=整局結算,2=單獨結算（同一成員可能有多行快照）
+function settleTypeText(type: number): string {
+  return type === 2 ? t('settleMember') : t('settleBattle')
 }
 
 const searchItems: MaSearchItem[] = [
@@ -351,7 +394,8 @@ function handleClose() {
       </template>
     </MaProTable>
 
-    <el-drawer v-model="detailVisible" :title="t('detailTitle')" size="70%" :loading="detailLoading">
+    <!-- append-to-body：抽屜掛到 body 渲染，避免被 MineAdmin 的頂部/側邊菜單（層級更高）遮住 -->
+    <el-drawer v-model="detailVisible" :title="t('detailTitle')" size="70%" :loading="detailLoading" append-to-body>
       <el-descriptions :column="3" border>
         <el-descriptions-item :label="t('roomNo')">
           {{ detailData.room?.room_no }}
@@ -409,7 +453,7 @@ function handleClose() {
       <el-table :data="detailData.battles" border size="small">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column :label="t('currentRound')" prop="total_rounds" width="100" />
-        <el-table-column label="Tea Fee" prop="tea_fee_total" width="110" />
+        <el-table-column :label="t('teaFee')" prop="tea_fee_total" width="110" />
         <el-table-column :label="t('createdAt')" prop="started_at" width="170" />
         <el-table-column :label="t('settled')" prop="finished_at" width="170" />
       </el-table>
@@ -420,7 +464,17 @@ function handleClose() {
         <el-table-column :label="t('nickname')" prop="nickname" />
         <el-table-column :label="t('score')" prop="total_score" width="100" />
         <el-table-column label="Rank" prop="rank" width="80" />
-        <el-table-column :label="t('amount')" prop="tea_fee" width="100" />
+        <el-table-column :label="t('result')" width="90">
+          <template #default="{ row }">
+            {{ resultText(row.result) }}
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('settleType')" width="110">
+          <template #default="{ row }">
+            {{ settleTypeText(row.settle_type) }}
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('teaFee')" prop="tea_fee" width="100" />
       </el-table>
 
       <el-divider>{{ t('transfers') }}</el-divider>
