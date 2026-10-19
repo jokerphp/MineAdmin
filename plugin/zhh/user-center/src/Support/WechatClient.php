@@ -16,7 +16,6 @@ use Hyperf\Filesystem\FilesystemFactory;
 use Hyperf\Guzzle\ClientFactory;
 use Hyperf\Redis\Redis;
 use Plugin\Zhh\UserCenter\Model\MemberApp;
-use Ramsey\Uuid\Uuid;
 
 class WechatClient
 {
@@ -55,9 +54,19 @@ class WechatClient
     private const RESOURCE_DISK = 'resources';
 
     /**
-     * 小程序碼存放子目錄：resources/qrcode/{日期}/{uuid}.png
+     * 小程序碼存放子目錄：resources/qrcode/{日期}/{房號}.png
      */
     private const QRCODE_DIR = 'qrcode';
+
+    /**
+     * 房間小程序碼緩存：一個哈希存所有房間，field = {app_id}:{房號}
+     */
+    private const QRCODE_CACHE_KEY = 'room-qrcode';
+
+    /**
+     * 房間小程序碼有效期（秒）：30 分鐘，過期後重新生成
+     */
+    private const QRCODE_TTL = 1800;
 
     public function __construct(
         private readonly ClientFactory $clientFactory,
@@ -147,12 +156,20 @@ class WechatClient
     /**
      * 生成不限量小程序碼（方案 §7.3 房間邀請），返回可直接訪問的圖片 URL。
      *
-     * 說明：微信 `wxa/getwxacodeunlimit` 返回的是**圖片二進制流**而非 CDN URL，
-     * 因此把二進制落地到 resources 磁盤的 `qrcode/{日期}/{uuid}.png`，再返回 `{APP_URL}/resources/...` 訪問地址，
-     * 以符合方案「返回 qr_url」的契約（目錄結構見 config/autoload/file.php 與倉庫根目錄 nginx.config）。
+     * 缓存策略：Redis 哈希 `room-qrcode` 集中存放所有房間的小程序碼，
+     * field = `{app_id}:{房號}`，value = `{"url":..., "ts":...}`；每個房間的碼有效期 30 分鐘，
+     * 有效期內重複點擊「邀請好友」直接複用同一張，不再請求微信、也不產生新文件。
+     *
+     * 文件命名：`qrcode/{日期}/{房號}.png`（同一房間當天重複生成會覆蓋同一張，避免文件堆積）。
      */
-    public function getUnlimitedQRCode(MemberApp $app, string $scene, string $page): string
+    public function getUnlimitedQRCode(MemberApp $app, string $scene, string $page, string $roomNo): string
     {
+        $field = $app->app_id . ':' . $roomNo;
+        $cachedUrl = $this->cachedQrcodeUrl($field);
+        if ($cachedUrl !== '') {
+            return $cachedUrl;
+        }
+
         $response = $this->clientFactory->create(['timeout' => 10.0])->post(self::UNLIMITED_QRCODE_URL, [
             'query' => ['access_token' => $this->accessToken($app)],
             'json' => [
@@ -179,12 +196,47 @@ class WechatClient
             throw new BusinessException(ResultCode::UNPROCESSABLE_ENTITY, '生成小程序碼失敗：微信未返回圖片數據');
         }
 
-        $path = self::QRCODE_DIR . '/' . date('Y-m-d') . '/' . Uuid::uuid4()->toString() . '.png';
+        $path = self::QRCODE_DIR . '/' . date('Y-m-d') . '/' . $roomNo . '.png';
 
         $filesystem = $this->filesystemFactory->get(self::RESOURCE_DISK);
         $filesystem->write($path, $body);
 
-        return $filesystem->publicUrl($path);
+        $url = $filesystem->publicUrl($path);
+
+        // 写入 room-qrcode 哈希：value 自带时间戳，按 30 分鐘判定單個房間是否過期
+        $this->redis->hSet(
+            self::QRCODE_CACHE_KEY,
+            $field,
+            json_encode(['url' => $url, 'ts' => time()], JSON_UNESCAPED_UNICODE)
+        );
+        $this->redis->expire(self::QRCODE_CACHE_KEY, self::QRCODE_TTL);
+
+        return $url;
+    }
+
+    /**
+     * 讀取有效的房間小程序碼緩存（未過期才返回，過期返回空串）。
+     */
+    private function cachedQrcodeUrl(string $field): string
+    {
+        $cached = $this->redis->hGet(self::QRCODE_CACHE_KEY, $field);
+        if (! is_string($cached) || $cached === '') {
+            return '';
+        }
+
+        $payload = json_decode($cached, true);
+        if (! is_array($payload)) {
+            return '';
+        }
+
+        $url = (string) ($payload['url'] ?? '');
+        $createdAt = (int) ($payload['ts'] ?? 0);
+
+        if ($url === '' || $createdAt <= 0 || time() - $createdAt >= self::QRCODE_TTL) {
+            return '';
+        }
+
+        return $url;
     }
 
     private function sessionKey(string $appId, string $openid): string

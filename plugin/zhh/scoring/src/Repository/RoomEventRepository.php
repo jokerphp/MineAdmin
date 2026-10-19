@@ -50,4 +50,24 @@ final class RoomEventRepository extends IRepository
             ->orderBy('created_at')
             ->get();
     }
+
+    /**
+     * 房間過程時間線用的事件：本對局事件 + 開局前的房間事件（battle_id 為空，如建房/首次進房）。
+     *
+     * 開局前寫入的事件 battle_id 為 null，若只按 battle_id 過濾會漏掉，
+     * 導致「XXX 進入了房間」在房間頁看不到。
+     */
+    public function listForRoom(int $roomId, int $battleId): Collection
+    {
+        return $this->getQuery()
+            ->where('room_id', $roomId)
+            ->where(static function (Builder $query) use ($battleId) {
+                $query->whereNull('battle_id');
+                if ($battleId > 0) {
+                    $query->orWhere('battle_id', $battleId);
+                }
+            })
+            ->orderBy('created_at')
+            ->get();
+    }
 }

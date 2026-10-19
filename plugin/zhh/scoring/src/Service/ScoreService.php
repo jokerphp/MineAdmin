@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * 計分 / 支出服務（方案 §7.3 計分）：
  * 計分為**轉賬式零和雙向更新**（收款方 +amount、付款方 −amount，單條 UPDATE ... CASE），
- * 全房分數總和恆為 0；支出（茶水費）只記帳不動分數。
+ * 全房分數總和恆為 0；支出（茶水費）由記帳人單邊承擔，直接從其分數扣減（不參與零和轉賬）。
  */
 
 namespace Plugin\Zhh\Scoring\Service;
@@ -85,7 +85,10 @@ final class ScoreService extends IService
     }
 
     /**
-     * 新增支出（茶水費，方案 §7.2/§5.2 record_type=2）：只記帳，不改變分數。
+     * 新增支出（茶水費，方案 §7.2/§5.2 record_type=2）：
+     * 記帳的同時**從記帳人分數中扣減**（支付 10 茶水 → 本人 −10），其餘成員分數不變。
+     *
+     * 說明：茶水費是流出牌桌的錢，不做零和雙向更新，僅記帳人單邊扣減。
      *
      * @param array<string, mixed> $params
      */
@@ -95,7 +98,14 @@ final class ScoreService extends IService
             $room = $this->requirePlayingRoom((int) $params['room_id']);
             $battleId = $this->roomService->ensureBattle($room, (int) $room->owner_id);
 
-            $this->requireActiveMember((int) $room->id, $uid, '您已結算或已退出房間，無法記錄支出');
+            $member = $this->requireActiveMember((int) $room->id, $uid, '您已結算或已退出房間，無法記錄支出');
+
+            $amount = (string) $params['amount'];
+
+            // 茶水費由記帳人承擔：直接扣減其分數（單行 UPDATE，不走計分用的批量 CASE 語句）
+            $this->roomMemberRepository->updateById((int) $member->id, [
+                'score' => bcsub((string) $member->score, $amount, 2),
+            ]);
 
             $this->repository->create([
                 'room_id' => (int) $room->id,
@@ -105,7 +115,7 @@ final class ScoreService extends IService
                 'user_id' => $uid,
                 'target_user_id' => null,
                 'record_type' => RecordType::EXPENSE,
-                'amount' => (string) $params['amount'],
+                'amount' => $amount,
                 'remark' => (string) ($params['remark'] ?? '茶水費'),
                 'created_by' => $uid,
             ]);
@@ -132,7 +142,7 @@ final class ScoreService extends IService
         return $room;
     }
 
-    private function requireActiveMember(int $roomId, int $userId, string $message): void
+    private function requireActiveMember(int $roomId, int $userId, string $message): RoomMember
     {
         $member = $this->roomMemberRepository->lockForUpdate([
             'room_id' => $roomId,
@@ -142,5 +152,7 @@ final class ScoreService extends IService
         if (! $member instanceof RoomMember || (int) $member->status !== RoomMemberStatus::IN) {
             throw new BusinessException(ResultCode::UNPROCESSABLE_ENTITY, $message);
         }
+
+        return $member;
     }
 }

@@ -118,6 +118,42 @@ final class BattleMemberRepository extends IRepository
     }
 
     /**
+     * 我在多個對局的快照分求和（我的房間列表展示「我的得分」，一次 GROUP BY 查詢）。
+     *
+     * @param int[] $battleIds
+     * @return array<int, string> [battle_id => 我在該對局的累計得分]
+     */
+    public function sumScoreByUserAndBattles(int $userId, array $battleIds): array
+    {
+        if ($battleIds === []) {
+            return [];
+        }
+
+        return $this->getQuery()
+            ->where('user_id', $userId)
+            ->whereIn('battle_id', $battleIds)
+            ->groupBy('battle_id')
+            ->selectRaw('battle_id, SUM(total_score) AS score')
+            ->pluck('score', 'battle_id')
+            ->toArray();
+    }
+
+    /**
+     * 對局各成員的快照分合計（房間頁已結束時展示最終得分，一次 GROUP BY）。
+     *
+     * @return array<int, string> [user_id => 該對局累計得分]
+     */
+    public function sumScoreByBattle(int $battleId): array
+    {
+        return $this->getQuery()
+            ->where('battle_id', $battleId)
+            ->groupBy('user_id')
+            ->selectRaw('user_id, SUM(total_score) AS score')
+            ->pluck('score', 'user_id')
+            ->toArray();
+    }
+
+    /**
      * 個人/對局維度的快照分求和（含重入多次快照，方案 §7.3 累計總分口徑）。
      */
     public function sumScoreByUser(int $userId): string

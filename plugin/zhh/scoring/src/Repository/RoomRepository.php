@@ -71,6 +71,30 @@ final class RoomRepository extends IRepository
     }
 
     /**
+     * 按 ID 批量取房間並以 id 為鍵返回（我的房間列表一次補齊，避免循環內查庫）。
+     *
+     * @param int[] $ids
+     * @return array<int, array<string, mixed>>
+     */
+    public function mapByIds(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $map = [];
+        $rows = $this->getQuery()
+            ->whereIn('id', $ids)
+            ->get(['id', 'room_no', 'owner_id', 'status', 'current_battle_id', 'finished_at', 'created_at']);
+
+        foreach ($rows as $row) {
+            $map[(int) $row->id] = $row->toArray();
+        }
+
+        return $map;
+    }
+
+    /**
      * 後台強制關閉房間（一次批量 UPDATE，方案 §7.4）。
      *
      * @param int[] $ids

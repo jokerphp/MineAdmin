@@ -13,6 +13,7 @@ use App\Http\Common\Controller\AbstractController;
 use App\Http\Common\Middleware\AccessTokenMiddleware;
 use App\Http\Common\Result;
 use Hyperf\HttpServer\Annotation\Middleware;
+use Hyperf\HttpServer\Contract\RequestInterface;
 use Hyperf\Swagger\Annotation\Get;
 use Hyperf\Swagger\Annotation\HyperfServer;
 use Hyperf\Swagger\Annotation\JsonContent;
@@ -74,6 +75,40 @@ final class RoomController extends AbstractController
     {
         return $this->success(
             $this->roomService->info((int) $this->memberContext->userOrFail()->id, (int) $request->input('room_id'))
+        );
+    }
+
+    #[Get(
+        path: '/api/v1/room/active',
+        operationId: 'ScoringRoomActive',
+        summary: '我當前未結束的房間（首頁/我的懸浮條）',
+        security: [['Bearer' => [], 'ApiKey' => []]],
+        tags: ['計分業務']
+    )]
+    #[ResultResponse(instance: new Result(data: ['room_id' => 1, 'room_no' => 'AB23CD']))]
+    public function active(): Result
+    {
+        return $this->success(
+            $this->roomService->activeRoom((int) $this->memberContext->userOrFail()->id)
+        );
+    }
+
+    #[Get(
+        path: '/api/v1/room/my-rooms',
+        operationId: 'ScoringRoomMyRooms',
+        summary: '我的房間列表（創建或進入過的房間，我的戰績列表）',
+        security: [['Bearer' => [], 'ApiKey' => []]],
+        tags: ['計分業務']
+    )]
+    #[ResultResponse(instance: new Result(data: ['list' => [], 'total' => 0]))]
+    public function myRooms(RequestInterface $request): Result
+    {
+        return $this->success(
+            $this->roomService->myRooms(
+                (int) $this->memberContext->userOrFail()->id,
+                (int) $request->input('page', 1),
+                (int) $request->input('size', 10)
+            )
         );
     }
 

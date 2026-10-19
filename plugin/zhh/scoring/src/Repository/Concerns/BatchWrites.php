@@ -28,7 +28,10 @@ trait BatchWrites
             return 0;
         }
 
-        return $this->getQuery()->insert($rows);
+        // Query\Builder::insert() 返回的是 bool，而本方法簽名是 int：
+        // 直接 return 會在 PHP 嚴格類型下拋 TypeError（結算時 batchInsert(): return value must be of type int, true returned），
+        // 故按「成功即寫入的行數」返回。
+        return $this->getQuery()->insert($rows) ? count($rows) : 0;
     }
 
     /**

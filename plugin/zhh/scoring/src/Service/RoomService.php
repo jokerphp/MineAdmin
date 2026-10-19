@@ -20,7 +20,9 @@ use Plugin\Zhh\Scoring\Enum\RoomStatus;
 use Plugin\Zhh\Scoring\Model\Battle;
 use Plugin\Zhh\Scoring\Model\Room;
 use Plugin\Zhh\Scoring\Model\RoomMember;
+use Plugin\Zhh\Scoring\Repository\BattleMemberRepository;
 use Plugin\Zhh\Scoring\Repository\BattleRepository;
+use Plugin\Zhh\Scoring\Repository\RecordRepository;
 use Plugin\Zhh\Scoring\Repository\RoomEventRepository;
 use Plugin\Zhh\Scoring\Repository\RoomMemberRepository;
 use Plugin\Zhh\Scoring\Repository\RoomRepository;
@@ -56,6 +58,8 @@ final class RoomService extends IService
         protected readonly RoomMemberRepository $roomMemberRepository,
         protected readonly RoomEventRepository $roomEventRepository,
         protected readonly BattleRepository $battleRepository,
+        protected readonly BattleMemberRepository $battleMemberRepository,
+        protected readonly RecordRepository $recordRepository,
         protected readonly OwnerTransfer $ownerTransfer,
         protected readonly RoomPush $roomPush,
         protected readonly MemberUserRepository $memberUserRepository,
@@ -122,6 +126,9 @@ final class RoomService extends IService
                 'status' => RoomMemberStatus::IN,
                 'joined_at' => date('Y-m-d H:i:s'),
             ]);
+
+            // 建房即進房：寫入「XXX 進入了房間」系統事件（與 join 一致，房間頁聊天區可見）
+            $this->writeEvent($room, RoomEventType::JOIN, $uid, (string) $profile['nickname'], '創建房間');
 
             $this->roomPush->pushRoomUpdate((int) $room->id, 1);
 
@@ -255,13 +262,24 @@ final class RoomService extends IService
 
         $this->ensureMember($roomId, $uid);
 
+        $finished = (int) $room->status >= RoomStatus::SETTLED;
+        $battleId = (int) ($room->current_battle_id ?? 0);
+
+        // 已結束：成員全部為「已結算」且分數已清零，改為返回全體成員 + 對局快照合計作為最終得分，
+        // 這樣從「我的戰績」進入結束的房間時，成員卡片與過程流仍能正常展示。
+        $source = $finished
+            ? $this->roomMemberRepository->listByRoom($roomId)
+            : $this->roomMemberRepository->activeList($roomId);
+        $finalScores = $finished && $battleId > 0 ? $this->battleMemberRepository->sumScoreByBattle($battleId) : [];
+
         $members = [];
-        foreach ($this->roomMemberRepository->activeList($roomId) as $member) {
+        foreach ($source as $member) {
+            $userId = (int) $member->user_id;
             $members[] = [
-                'user_id' => (int) $member->user_id,
+                'user_id' => $userId,
                 'nickname' => (string) $member->nickname,
                 'avatar' => (string) $member->avatar,
-                'score' => (string) $member->score,
+                'score' => $finished ? (string) ($finalScores[$userId] ?? '0.00') : (string) $member->score,
                 'role' => (int) $member->role,
                 'status' => (int) $member->status,
                 'joined_at' => $member->joined_at?->toDateTimeString(),
@@ -278,9 +296,107 @@ final class RoomService extends IService
                 'current_round' => (int) $room->current_round,
                 'current_battle_id' => $room->current_battle_id === null ? null : (int) $room->current_battle_id,
                 'score_version' => (int) $room->score_version,
+                // 當前對局茶水費合計（房間頁頂部實時展示；原本只在結算時回填到 battle，導致頁面一直顯示 0）
+                'tea_fee_total' => $this->currentTeaFeeTotal($room),
             ],
             'members' => $members,
         ];
+    }
+
+    /**
+     * 當前對局茶水費合計（record_type=2 求和）：未開局（無 battle）時為 0。
+     */
+    private function currentTeaFeeTotal(Room $room): string
+    {
+        $battleId = (int) ($room->current_battle_id ?? 0);
+
+        return $battleId > 0 ? $this->recordRepository->teaFeeTotalByBattle($battleId) : '0.00';
+    }
+
+    /**
+     * 我的戰績列表（方案 §9.6）：列出「我創建或進入過」的全部房間，按最近參與倒序。
+     *
+     * 已結束的房間帶 battle_id（前端可打開結算排行榜）；未結束的房間前端顯示「對戰中」並可直接返回房間。
+     *
+     * @return array<string, mixed>
+     */
+    public function myRooms(int $uid, int $page, int $size): array
+    {
+        $result = $this->roomMemberRepository->pageByUser($uid, $page, $size);
+
+        $roomIds = [];
+        foreach ($result['list'] as $row) {
+            $roomIds[] = (int) $row['room_id'];
+        }
+
+        $rooms = $this->repository->mapByIds($roomIds);
+
+        // 我的得分：一次 GROUP BY 查這一頁涉及對局的快照和（禁止循環內查庫，方案 §1.3）
+        $battleIds = [];
+        foreach ($rooms as $room) {
+            if (! empty($room['current_battle_id'])) {
+                $battleIds[] = (int) $room['current_battle_id'];
+            }
+        }
+        $myScores = $this->battleMemberRepository->sumScoreByUserAndBattles($uid, $battleIds);
+
+        $list = [];
+        foreach ($result['list'] as $row) {
+            $roomId = (int) $row['room_id'];
+            $room = $rooms[$roomId] ?? null;
+            if ($room === null) {
+                // 房間已被刪除：不列入戰績
+                continue;
+            }
+
+            $battleId = empty($room['current_battle_id']) ? 0 : (int) $room['current_battle_id'];
+            $status = (int) $room['status'];
+            $finished = $status >= RoomStatus::SETTLED;
+
+            $list[] = [
+                'room_id' => $roomId,
+                'room_no' => (string) $room['room_no'],
+                'status' => $status,
+                'finished' => $finished,
+                'is_owner' => (int) $row['role'] === 1,
+                'battle_id' => $battleId,
+                // 已結束：本人在該對局的快照累計；未結束：當前未清算餘額
+                'my_score' => $finished ? (string) ($myScores[$battleId] ?? '0.00') : (string) $row['score'],
+                'joined_at' => (string) ($row['joined_at'] ?? ''),
+                'finished_at' => $room['finished_at'] ?? null,
+            ];
+        }
+
+        return ['list' => $list, 'total' => (int) $result['total']];
+    }
+
+    /**
+     * 我最近一個「未結束」的房間（首頁/我的頁「對戰中」懸浮條用）。
+     *
+     * 按建房/加入順序倒序取第一個 status < 已結算的房間 —— 與「最後點開了哪個戰績」無關。
+     *
+     * @return array{room_id: int, room_no: string}
+     */
+    public function activeRoom(int $uid): array
+    {
+        $result = $this->roomMemberRepository->pageByUser($uid, 1, 10);
+
+        $roomIds = [];
+        foreach ($result['list'] as $row) {
+            $roomIds[] = (int) $row['room_id'];
+        }
+
+        $rooms = $this->repository->mapByIds($roomIds);
+
+        foreach ($result['list'] as $row) {
+            $roomId = (int) $row['room_id'];
+            $room = $rooms[$roomId] ?? null;
+            if ($room !== null && (int) $room['status'] < RoomStatus::SETTLED) {
+                return ['room_id' => $roomId, 'room_no' => (string) $room['room_no']];
+            }
+        }
+
+        return ['room_id' => 0, 'room_no' => ''];
     }
 
     /**
@@ -309,7 +425,7 @@ final class RoomService extends IService
 
         return [
             'room_no' => $roomNo,
-            'qr_url' => $this->wechatClient->getUnlimitedQRCode($app, 'r=' . $roomNo, 'pages/index/index'),
+            'qr_url' => $this->wechatClient->getUnlimitedQRCode($app, 'r=' . $roomNo, 'pages/index/index', $roomNo),
             'share_title' => '來打牌記賬一起記分（房號 ' . $roomNo . '）',
         ];
     }

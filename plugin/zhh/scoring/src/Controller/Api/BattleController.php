@@ -17,6 +17,7 @@ use Hyperf\HttpServer\Contract\RequestInterface;
 use Hyperf\Swagger\Annotation\Get;
 use Hyperf\Swagger\Annotation\HyperfServer;
 use Mine\Swagger\Attributes\ResultResponse;
+use Plugin\Zhh\Scoring\Request\Api\RoomIdRequest;
 use Plugin\Zhh\Scoring\Service\BattleService;
 use Plugin\Zhh\UserCenter\Support\MemberContext;
 
@@ -28,6 +29,24 @@ final class BattleController extends AbstractController
         private readonly BattleService $battleService,
         private readonly MemberContext $memberContext
     ) {}
+
+    #[Get(
+        path: '/api/v1/room/feed',
+        operationId: 'ScoringRoomFeed',
+        summary: '房間過程消息流（房間頁聊天區：系統事件 + 金額流水）',
+        security: [['Bearer' => [], 'ApiKey' => []]],
+        tags: ['計分業務']
+    )]
+    #[ResultResponse(instance: new Result(data: []))]
+    public function roomFeed(RoomIdRequest $request): Result
+    {
+        return $this->success(
+            $this->battleService->roomFeed(
+                (int) $this->memberContext->userOrFail()->id,
+                (int) $request->input('room_id')
+            )
+        );
+    }
 
     #[Get(
         path: '/api/v1/room/records',

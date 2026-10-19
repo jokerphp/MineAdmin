@@ -89,6 +89,16 @@ final class RoomMemberRepository extends IRepository
     }
 
     /**
+     * 我參與過的房間：按成員記錄倒序分頁（我的戰績列表＝創建或加入過的房間，方案 §9.6）。
+     *
+     * 同一房間重入復用同一行，故一條成員記錄對應一個房間，不會重複。
+     */
+    public function pageByUser(int $userId, int $page, int $size): array
+    {
+        return $this->page(['user_id' => $userId], $page, $size);
+    }
+
+    /**
      * 房間全部成員（含已退出/已結算，後台房間詳情展示，方案 §7.4）。
      */
     public function listByRoom(int $roomId): Collection
@@ -109,6 +119,19 @@ final class RoomMemberRepository extends IRepository
         return $this->getQuery()
             ->where('room_id', $roomId)
             ->pluck('nickname', 'user_id')
+            ->toArray();
+    }
+
+    /**
+     * 房間成員頭像映射（過程消息流氣泡頭像用，一次查詢，方案 §7.3）。
+     *
+     * @return array<int, string> [user_id => avatar]
+     */
+    public function avatarMap(int $roomId): array
+    {
+        return $this->getQuery()
+            ->where('room_id', $roomId)
+            ->pluck('avatar', 'user_id')
             ->toArray();
     }
 

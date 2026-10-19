@@ -99,7 +99,7 @@ final class SettleService extends IService
                 $snapshotRows[] = $this->snapshotRow(
                     $battleId,
                     $item,
-                    $this->computeResult((int) $item->rank, $total),
+                    $this->computeResult((string) $item->effective, (int) $item->rank, $total),
                     (string) ($teaFees[(int) $item->user_id] ?? '0.00'),
                     SettleType::BATTLE,
                     $now
@@ -211,7 +211,7 @@ final class SettleService extends IService
                 'avatar' => (string) $target->avatar,
                 'total_score' => $targetEffective,
                 'rank' => $myRank,
-                'result' => $this->computeResult($myRank, $total),
+                'result' => $this->computeResult($targetEffective, $myRank, $total),
                 'tea_fee' => (string) ($teaFees[$targetUserId] ?? '0.00'),
                 'settle_type' => SettleType::MEMBER,
                 'settled_at' => $now,
@@ -382,17 +382,26 @@ final class SettleService extends IService
     /**
      * 勝負判定（方案 §7.3 result:1=勝,2=負,3=平）。
      *
-     * 假設：方案未給出 computeResult 規則，此處按相對排名判定——
-     * 僅 1 人時為平；第 1 名為勝；末名為負；其餘為平。
+     * 規則（在相對排名之外補上分數正負，覆蓋「只支付茶水」的單邊扣減場景）：
+     * 1. 只有一人：沒有對手，僅負分判負（只付了茶水 → 負，而非平），其餘為平；
+     * 2. 第 1 名為勝；
+     * 3. 負分一律判負 —— 只看名次的話，「全場只有茶水支出」等情況會被算成平，與實際輸分不符；
+     * 4. 0 分且非第 1 名：末名為負，其餘為平。
      */
-    private function computeResult(int $rank, int $total): int
+    private function computeResult(string $score, int $rank, int $total): int
     {
-        if ($total <= 1 || $rank <= 0) {
-            return 3;
+        $negative = bccomp($score, '0', 2) < 0;
+
+        if ($total <= 1) {
+            return $negative ? 2 : 3;
         }
 
         if ($rank === 1) {
             return 1;
+        }
+
+        if ($negative) {
+            return 2;
         }
 
         return $rank === $total ? 2 : 3;
