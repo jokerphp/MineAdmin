@@ -9,6 +9,7 @@ declare(strict_types=1);
  * @contact  root@imoi.cn
  * @license  https://github.com/mineadmin/MineAdmin/blob/master/LICENSE
  */
+use App\Listener\TrustedProxyListener;
 use Hyperf\ExceptionHandler\Listener\ErrorExceptionHandler;
 use Mine\Core\Subscriber\BootApplicationSubscriber;
 use Mine\Core\Subscriber\DbQueryExecutedSubscriber;
@@ -34,4 +35,6 @@ return [
     QueueHandleSubscriber::class,
     // 注册新的 Blueprint 宏
     RegisterBlueprintListener::class,
+    // 反向代理（Nginx）场景下信任 X-Forwarded-For，正确解析客户端真实 IP
+    TrustedProxyListener::class,
 ];
