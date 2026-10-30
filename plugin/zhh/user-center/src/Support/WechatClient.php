@@ -12,6 +12,7 @@ namespace Plugin\Zhh\UserCenter\Support;
 
 use App\Exception\BusinessException;
 use App\Http\Common\ResultCode;
+use Hyperf\Contract\ConfigInterface;
 use Hyperf\Filesystem\FilesystemFactory;
 use Hyperf\Guzzle\ClientFactory;
 use Hyperf\Redis\Redis;
@@ -68,10 +69,16 @@ class WechatClient
      */
     private const QRCODE_TTL = 1800;
 
+    /**
+     * 資源目錄權限：與 storage/resources、storage/uploads 既有目錄保持一致（www 755）
+     */
+    private const PUBLIC_DIR_PERMISSIONS = 0755;
+
     public function __construct(
         private readonly ClientFactory $clientFactory,
         private readonly Redis $redis,
-        private readonly FilesystemFactory $filesystemFactory
+        private readonly FilesystemFactory $filesystemFactory,
+        private readonly ConfigInterface $config
     ) {}
 
     /**
@@ -199,7 +206,8 @@ class WechatClient
         $path = self::QRCODE_DIR . '/' . date('Y-m-d') . '/' . $roomNo . '.png';
 
         $filesystem = $this->filesystemFactory->get(self::RESOURCE_DISK);
-        $filesystem->write($path, $body);
+        $filesystem->write($path, $body, ['visibility' => 'public']);
+        $this->chmodPublicDirectory(dirname($path));
 
         $url = $filesystem->publicUrl($path);
 
@@ -242,5 +250,33 @@ class WechatClient
     private function sessionKey(string $appId, string $openid): string
     {
         return self::SESSION_KEY_PREFIX . $appId . ':' . $openid;
+    }
+
+    /**
+     * 補齊資源目錄權限，避免 nginx 因目錄 700 讀不到圖片（403）。
+     *
+     * Flysystem 建目錄時只調 mkdir($dir, 0755, true)，而 mkdir 的 mode 會被進程 umask 掩掉：
+     * 進程 umask 為 077 時 0755 & ~077 = 0700（文件同理 0600，但文件由 visibility=public 的
+     * setVisibility 走 chmod 修正，目錄不會）。chmod 不受 umask 影響，故寫完後逐級補成 0755。
+     * Windows 下 chmod 無意義，本地開發直接跳過。
+     */
+    private function chmodPublicDirectory(string $relativeDir): void
+    {
+        if (DIRECTORY_SEPARATOR !== '/') {
+            return;
+        }
+
+        $root = rtrim((string) $this->config->get('file.storage.' . self::RESOURCE_DISK . '.root', ''), '/');
+        if ($root === '') {
+            return;
+        }
+
+        $current = $root;
+        foreach (explode('/', trim($relativeDir, '/')) as $segment) {
+            $current .= '/' . $segment;
+            if (is_dir($current)) {
+                @chmod($current, self::PUBLIC_DIR_PERMISSIONS);
+            }
+        }
     }
 }
